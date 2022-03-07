@@ -1,0 +1,17 @@
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd" >
+
+<suite name="Testing" verbose="3">
+	<test name="Wiki">
+	<parameter name="browser" value="Chrome"></parameter>
+		<classes>
+			<class name="com.test.OneTest"></class>
+			<class name="com.test.TestNGBasics"></class>
+		</classes>
+	</test>
+	
+	<test name="JUnitTests" junit="true">
+		<classes>
+			<class name="com.test.AppTest"></class>
+		</classes>
+	</test>
+</suite>

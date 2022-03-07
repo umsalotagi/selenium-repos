@@ -1,0 +1,51 @@
+package com.test;
+
+import org.openqa.selenium.By;
+import org.openqa.selenium.support.ui.ExpectedConditions;
+import org.openqa.selenium.support.ui.WebDriverWait;
+import org.testng.annotations.Test;
+
+import com.dataObject.RegistrationData;
+import com.pageObject.NewRegistration;
+
+
+public class WebDriverListenerTest2 extends BaseRepeat_Listener{
+	
+	// here we cannot run methods in parallel, because of BaseReapet
+	// BaseRepeat holds value of driver for this entire test class.
+	// means entire test class share same value of driver and url, which result inconsistency when test run in parallel
+	
+	// we hard code data in function itself when we don't have any plans to use that function with parameters.
+	@Test
+	public  void testRegistrationNONDataDriven()  
+		{		
+		RegistrationData registrationData = new RegistrationData();
+		registrationData.setFirstName ("first");
+		registrationData.setLastName("second");
+		registrationData.setPhone("58696");
+		registrationData.setUserName("have");
+		registrationData.setCountry("INDIA");
+		registrationData.setEmail("one#gmail.com");
+		registrationData.setPassword("%eet");
+		registrationData.setConfirmPassword("%eet");
+		
+		NewRegistration registration = new NewRegistration(driver);  // here we launch the chrome/FF
+		
+		driver.get("http://newtours.demoaut.com/mercuryregister.php"); // here we go to desired site
+		
+		registration.registerNewUser(registrationData); 
+			
+		assert driver.findElement(By.tagName("body")).getText().contains("Thank you for registering. You"+
+										" may now sign-in using the user name and password you've just entered.");
+		
+		driver.navigate().to("https://www.google.com/");
+		driver.findElement(By.name("q")).sendKeys("Umesh Salotagi");
+		driver.findElement(By.name("btnK")).submit();
+		driver.navigate().back();
+		driver.navigate().forward();
+		driver.navigate().refresh();
+		
+		
+		}
+	
+}

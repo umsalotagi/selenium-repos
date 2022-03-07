@@ -1,0 +1,5 @@
+2015-06-09 11:41:47,198 INFO  [LoggerA] Done1 
+2015-06-09 11:41:47,198 ERROR [LoggerA] nothing 
+2015-06-09 11:41:47,198 WARN  [LoggerA] dish 
+2015-06-09 11:45:55,106 INFO  [LoggerA] Broser is set 
+2015-06-09 11:46:03,673 INFO  [LoggerA] Broser is closed 

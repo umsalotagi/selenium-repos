@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
+<suite thread-count="2" guice-stage="DEVELOPMENT" verbose="3" name="Failed suite [Testing]" parallel="classes">
+  <parameter name="browser" value="Chrome"/>
+  <test name="Registration in chrome">
+    <parameter name="browser" value="Chrome"/>
+    <classes>
+      <class name="com.test.OneTest"/>
+      <class name="com.test.TestNGBasics"/>
+    </classes>
+  </test> <!-- Registration in chrome -->
+  <test name="Registration in chrome(failed)" parallel="classes">
+    <parameter name="browser" value="Chrome"/>
+    <classes>
+      <class name="com.test.OneTest">
+        <methods>
+          <include name="testRegistrationNONDataDriven"/>
+          <include name="testRegistrationNew"/>
+          <include name="LaunchBrowser"/>
+          <include name="CloseBrowser"/>
+          <include name="setEnv"/>
+        </methods>
+      </class> <!-- com.test.OneTest -->
+      <class name="com.test.TestNGBasics">
+        <methods>
+          <include name="atestOne"/>
+        </methods>
+      </class> <!-- com.test.TestNGBasics -->
+    </classes>
+  </test> <!-- Registration in chrome(failed) -->
+</suite> <!-- Failed suite [Testing] -->

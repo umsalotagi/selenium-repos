@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd">
+<suite guice-stage="DEVELOPMENT" verbose="3" name="Failed suite [Testing2]">
+  <parameter name="filepath" value="D:\\data.txt"/>
+  <parameter name="browser" value="Chrome"/>
+  <parameter name="url" value="http://newtours.demoaut.com/mercuryregister.php"/>
+  <listeners>
+    <listener class-name="com.test.MyTestNGListener"/>
+  </listeners>
+  <test name="Registration">
+    <classes>
+      <class name="com.test.DataDrivenCSVReadRegistrationTest"/>
+      <class name="com.test.TestNGBasics"/>
+    </classes>
+  </test> <!-- Registration -->
+  <test name="Registration(failed)">
+    <classes>
+      <class name="com.test.TestNGBasics">
+        <methods>
+          <include name="dtestOne"/>
+          <include name="ftestOne"/>
+          <include name="g_dependsOnFPass_ShouldFail"/>
+          <include name="h_dependsOnFail"/>
+        </methods>
+      </class> <!-- com.test.TestNGBasics -->
+      <class name="com.test.DataDrivenCSVReadRegistrationTest">
+        <methods>
+          <include name="tearDown"/>
+          <include name="start"/>
+          <include name="login"/>
+        </methods>
+      </class> <!-- com.test.DataDrivenCSVReadRegistrationTest -->
+    </classes>
+  </test> <!-- Registration(failed) -->
+</suite> <!-- Failed suite [Testing2] -->

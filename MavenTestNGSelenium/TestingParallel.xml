@@ -1,0 +1,22 @@
+<!DOCTYPE suite SYSTEM "http://testng.org/testng-1.0.dtd" >
+
+<!-- parallel can be tests and classes, both runs ok here -->
+<suite name="Testing" verbose="3" parallel="tests" thread-count="2">
+	<test name="Registration in chrome">
+	<parameter name="browser" value="Chrome"></parameter>
+		<classes>
+			<class name="com.test.OneTest"></class>
+			<class name="com.test.TestNGBasics"></class>
+			<class name="com.test.AppTest"></class>
+		</classes>
+	</test>
+	
+	<test name="Registration in Firefox">
+	<parameter name="browser" value="Chrome"></parameter>
+		<classes>
+			<class name="com.test.OneTest"></class>
+			<class name="com.test.TestNGBasics"></class>
+			<class name="com.test.AppTest"></class>
+		</classes>
+	</test>
+</suite>
