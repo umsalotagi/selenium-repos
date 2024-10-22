@@ -1,0 +1,7 @@
+# crontab.txt
+
+# Run the Python script at 9 AM Monday to Friday
+0 9 * * 1-5 /usr/local/bin/python /app/renko_macd.py >> /var/log/renko_macd.log 2>&1
+
+# Kill the script at 4 PM Monday to Friday
+0 16 * * 1-5 pkill -f renko_macd.py
