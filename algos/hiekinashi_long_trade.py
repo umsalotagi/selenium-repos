@@ -37,6 +37,7 @@ import datetime
 import numpy as np
 import statsmodels.api as sm
 from stocktrends import Renko
+import math
 import configparser
 import pytz
 import sys
@@ -108,15 +109,20 @@ def fetchOHLCExtendedAll(tickers, interval, period_days):
         try:
             from_date = dt.date.today() - dt.timedelta(period_days)
             entire_data[ticker] = fetchOHLC(ticker, interval, from_date, dt.date.today())
-            entire_data[ticker].fillna(method='ffill', inplace=True)
+            #entire_data[ticker].fillna(method='ffill', inplace=True)
+            entire_data[ticker].ffill(inplace=True)
             entire_data[ticker].dropna(inplace=True,how="all")
             
         except NetworkException as e:
-            print("Possible too many request error, retyring for ", ticker, e)
-            time.sleep(0.05)
-            from_date = dt.date.today() - dt.timedelta(period_days)
-            entire_data[ticker] = fetchOHLC(ticker, interval, from_date, dt.date.today())
-            entire_data[ticker].dropna(inplace=True,how="all")
+            try:
+                print("Possible too many request error, retyring for ", ticker, e)
+                time.sleep(0.05)
+                from_date = dt.date.today() - dt.timedelta(period_days)
+                entire_data[ticker] = fetchOHLC(ticker, interval, from_date, dt.date.today())
+                entire_data[ticker].dropna(inplace=True,how="all")
+            except Exception as e:
+                print("hell, repeated offender ###", ticker, e)
+                raise
             
         except Exception as e:
             print("Possible invalid token for", ticker, e)
@@ -514,7 +520,7 @@ def calculateAlpha(tickers, interval, description, start_date, alpha_until_day):
     
     
     for ticker in tickers:
-        print("ticker### calculate alpha for stock", ticker)
+        print("ticker### calculate alpha for stock with start and end ", ticker, st, et)
         ohlc_dict[ticker]["return_daily"] =  ohlc_dict[ticker]["close"].pct_change()
         
         if interval == "day":
@@ -706,7 +712,7 @@ nse_instrument_df = pd.DataFrame(nse_instrument_dump)
 logger.info("Logging strting trade")
 
 max_trades = 1
-no_of_trades = 1
+no_of_trades = 1 # SHOULD BE ZERO
 test_mode = False
 
 
@@ -717,8 +723,8 @@ nifty_microcap_250 = ["AGI","ASKAUTOLTD","AARTIDRUGS","AARTIPHARM","ADVENZYMES",
 nifty_500_not_in_options = [item for item in nifty_500 if item not in nifty_options_stocks]
 
 index_ticker = "NIFTY 50"
-tickers = list(nifty_500_not_in_options + nifty_microcap_250)
-#tickers = nifty_options_stocks
+#tickers = list(nifty_500_not_in_options + nifty_microcap_250)
+tickers = nifty_microcap_250
 
 logger.info("starting download")
 entire_data = fetchOHLCExtendedAll(tickers, alpha_timeframe, 150)# 230
@@ -740,7 +746,8 @@ zz1 = KPI_df.T.sort_values(by='Alpha', ascending=False)
 # so alpha should be more than 0.002 and week return should be positive for now.
 zz2 = zz1[zz1["Alpha"] > 0.002][zz1["Week Return"] > 0]
 alpha_stocks_shortlisted = zz2.index.tolist()
-
+profit_target_per = 20
+sell_qty_on_target_profit = 0.5
 
 tickers = alpha_stocks_shortlisted
 
@@ -776,7 +783,7 @@ holdings = kite.holdings()
 
 # Tenkan_sen, Kijun_sen, Senkou_span_A, Senkou_span_B, Chikou_span
 for ticker in tickers:
-    if no_of_trades > max_trades or len(holdings_in_place) > 30:
+    if no_of_trades >= max_trades or len(holdings_in_place) > 30:
         logger.error("number of trades done is hiher than max_trades OR holdings_in_place is higher than 30")
         break
     weekly_line_bull = ohlc_dict_high_timeframe[ticker]["Tenkan_sen"].iloc[-1] > ohlc_dict_high_timeframe[ticker]["Kijun_sen"].iloc[-1]
@@ -789,7 +796,7 @@ for ticker in tickers:
     # and stock segment such as small cap etc. I think NO
     # just risk_amount here is the loss which will encur if stop loss is trigger, if that is big, investment made should be less
     risk_per = risk_amount / ohlc_dict[ticker]["close"].iloc[-1]
-    invetment_amount = 12000
+    invetment_amount = 15000 # changed from 12000
     if risk_per > 0.25:
         logger.warn ("high risk think do not enter")
         invetment_amount = 6000
@@ -828,6 +835,7 @@ for data_1 in data_all:
     if not data_1["is_squared"]:
         symbol = data_1["symbol"]
         qty = data_1["qty"]
+        buy_price = data_1["buy_price"]
         ohlc_dict = fetchOHLCExtendedAll([symbol], trade_timeframe, period_days=1000)
         ichimoko(ohlc_dict[symbol])
         if higher_timeframe == "week":
@@ -858,17 +866,56 @@ for data_1 in data_all:
                 # tocker exists in dmat account. we can sell it
                 placeMarketOrder(symbol, "SELL", qty)
                 # update the document 
-                db.update({'is_squared': True}, StockHolding.symbol == symbol)
+                db.update({'is_squared': True, "square_off_qty":qty, "square_off_price":ltp, "square_off_day":dt.datetime.today()}, StockHolding.symbol == symbol)
             else:
                 logger.error("ERROR : stocks not present in holding " + symbol)
                 
         else:
             logger.info("not eligible for sell off " + symbol)
+            
+        # We exit 50% of stocks when peorfit is 20 percent
+        """
+        profit_per = ( (ltp-buy_price) /buy_price ) * 100
+        if profit_per > profit_target_per and (data_1.get("is_partial_sell") is None):
+            logger.info("Target of {} achieved by {}, selling {}% of quantity, profit now {} ".format(profit_target_per, symbol, sell_qty_on_target_profit, profit_per))
+            sell_qty = sell_qty_on_target_profit * qty;
+            ticker_holdings = [data for data in holdings if data["tradingsymbol"] == symbol]
+            if ticker_holdings.__len__() != 0 and ticker_holdings[0]["quantity"] >= sell_qty :
+                # ticker exists in dmat account. we can sell it
+                placeMarketOrder(symbol, "SELL", math.floor(sell_qty))
+                # update the document 
+                db.update({'is_partial_sell': True, "partial_sell_qty": math.floor(sell_qty), "partial_sell_price":ltp, "partial_sell_day":dt.datetime.today()}, StockHolding.symbol == symbol)
+            else:
+                logger.error("ERROR : stocks not present in holding " + symbol)
+        """
+                
+        # TODO: if holding is more than 60 days , consider exiting 
+            
         
         
         
+        
+        
+# now getting status of all stocks in holding 
+
+data_all = db.all()
+counter = 1
+for data_1 in data_all:
+    if not data_1["is_squared"]:
+        symbol = data_1["symbol"]
+        qty = data_1["qty"]
+        buy_price = data_1["buy_price"]
+        total_buy_price = qty * buy_price
+        current_ltp = kite.ltp("NSE:" + symbol)["NSE:" + symbol]["last_price"]
+        total_crrent_price = qty * current_ltp
+        profit = ((current_ltp-buy_price)/buy_price)*100
+        holding_time = dt.datetime.today() - data_1["buy_date"]
+        logger.info("no {} symbol {} profit {}% and holding time {}".format(counter, symbol, round(profit, 2), holding_time))
+        counter = counter + 1
+        
+        
             
-            
-            
-            
+"""
+db.update({'symbol:'MMTC'}, StockHolding.symbol == 'MMTC-BE')
+"""
         
