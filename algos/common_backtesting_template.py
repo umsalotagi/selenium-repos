@@ -18,6 +18,7 @@ import csv
 import ast
 from stocktrends import Renko
 from kiteconnect.exceptions import NetworkException
+import sys
 
 
 def ATR(df,n):
@@ -104,16 +105,19 @@ invalid_token_tickers = []
 def fetchOHLCExtendedAll(tickers, interval, period_days):
     entire_data = {}
     for ticker in tickers:
+        instrument_token = None
+        if ticker in ticker_token_map:
+            instrument_token = ticker_token_map[ticker]
         try:
             from_date = dt.date.today() - dt.timedelta(period_days)
-            entire_data[ticker] = fetchOHLC(ticker, interval, from_date, dt.date.today())
+            entire_data[ticker] = fetchOHLC(ticker, interval, from_date, dt.date.today(), instrument_token)
             entire_data[ticker].dropna(inplace=True,how="all")
             
         except NetworkException as e:
             print("Possible too many request error, retyring for ", ticker, e)
             time.sleep(0.2)
             from_date = dt.date.today() - dt.timedelta(period_days)
-            entire_data[ticker] = fetchOHLC(ticker, interval, from_date, dt.date.today())
+            entire_data[ticker] = fetchOHLC(ticker, interval, from_date, dt.date.today(), instrument_token)
             entire_data[ticker].dropna(inplace=True,how="all")
             
         except Exception as e:
@@ -218,24 +222,19 @@ def supertrendNEW(df, n=10, m=3):
     return
 
 ###############################################################################
-
-def fn_enter_condition(ticker, i):
-    ts = cp_ohlc_dict[ticker].index[i]
-    # Find the last closed high TF candle before or at this timestamp
-    high_tf_idx = ohlc_dict_high_tf[ticker].index.get_indexer([ts], method="pad")[0]
+# check high tf histogram as more than certain amount, not jjust macd 
+# and then current tf hiekienashi, with ha calculation where close = 0.5 open + high + low + 1.5 close
+def fn_enter_condition(ticker, i, high_tf_idx):
 
     one = cp_ohlc_dict[ticker]["close"].iloc[i] > cp_ohlc_dict[ticker]["Senkou_span_A"].iloc[i]
-    two = ohlc_dict_high_tf[ticker]["close"].iloc[high_tf_idx-1] > ohlc_dict_high_tf[ticker]["Senkou_span_A"].iloc[high_tf_idx-1]
+    two = ohlc_dict_high_tf[ticker]["close"].iloc[high_tf_idx] > ohlc_dict_high_tf[ticker]["Senkou_span_A"].iloc[high_tf_idx]
     return one and two
 
 
-def fn_exit_condition(ticker, i):
-    ts = cp_ohlc_dict[ticker].index[i]
-    # Find the last closed high TF candle before or at this timestamp
-    high_tf_idx = ohlc_dict_high_tf[ticker].index.get_indexer([ts], method="pad")[0]
+def fn_exit_condition(ticker, i, high_tf_idx):
     
     one = cp_ohlc_dict[ticker]["close"].iloc[i] < cp_ohlc_dict[ticker]["Senkou_span_A"].iloc[i]
-    two = ohlc_dict_high_tf[ticker]["close"].iloc[high_tf_idx-1] < ohlc_dict_high_tf[ticker]["Senkou_span_A"].iloc[high_tf_idx-1]
+    two = ohlc_dict_high_tf[ticker]["close"].iloc[high_tf_idx] < ohlc_dict_high_tf[ticker]["Senkou_span_A"].iloc[high_tf_idx]
     return one or two
 
 
@@ -243,18 +242,22 @@ def fn_exit_condition(ticker, i):
 nifty_100 = ['ABB','ADANIENSOL','ADANIENT','ADANIGREEN','ADANIPORTS','ADANIPOWER','ATGL','AMBUJACEM','APOLLOHOSP','ASIANPAINT','DMART','AXISBANK','BAJAJ-AUTO','BAJFINANCE','BAJAJFINSV','BAJAJHLDNG','BANKBARODA','BERGEPAINT','BEL','BPCL','BHARTIARTL','BOSCHLTD','BRITANNIA','CANBK','CHOLAFIN','CIPLA','COALINDIA','COLPAL','DLF','DABUR','DIVISLAB','DRREDDY','EICHERMOT','GAIL','GODREJCP','GRASIM','HCLTECH','HDFCBANK','HDFCLIFE','HAVELLS','HEROMOTOCO','HINDALCO','HAL','HINDUNILVR','ICICIBANK','ICICIGI','ICICIPRULI','ITC','IOC','IRCTC','IRFC','INDUSINDBK','NAUKRI','INFY','INDIGO','JSWSTEEL','JINDALSTEL','JIOFIN','KOTAKBANK','LTIM','LT','LICI','M&M','MARICO','MARUTI','NTPC','NESTLEIND','ONGC','PIDILITIND','PFC','POWERGRID','PNB','RECLTD','RELIANCE','SBICARD','SBILIFE','SRF','MOTHERSON','SHREECEM','SHRIRAMFIN','SIEMENS','SBIN','SUNPHARMA','TVSMOTOR','TCS','TATACONSUM','TATAMOTORS','TATAPOWER','TATASTEEL','TECHM','TITAN','TORNTPHARM','TRENT','ULTRACEMCO','UNITDSPR','VBL','VEDL','WIPRO','ZYDUSLIFE']
 
 tickers = ['ABB','ADANIENSOL','ADANIENT']
+tickers = ['NIFTY_50_PE']
+
+ticker_token_map = { "NIFTY_50_PE" : "17082626"}
 
 strategy_tf = "15minute"
 tf_fetch_days = 180
 strtegy_high_tf = "day"
 high_tf_fetch_days = 250
 
-day_trade = True
+day_trade = False
 trading_days = 252  # yearly
 capital = 1_00_00_000  # 1 crore
 slippage_rate = 0.0005  # example: 0.05%
 
 trade_type = "Buy" # its Buy or Sell
+
 
 ###############################################################################
 
@@ -317,9 +320,13 @@ for ticker in tickers:
 
     for i in range(0,len(ohlc_dict[ticker])-2):
         #print(f"tickers_signal  {tickers_signal[ticker]}")
+        ts = cp_ohlc_dict[ticker].index[i]
+        # Find the last closed high TF candle before or at this timestamp
+        high_tf_idx = ohlc_dict_high_tf[ticker].index.get_indexer([ts], method="pad")[0] - 1
+        
         if tickers_signal[ticker] == "":
             
-            ENTER_CONDITION = fn_enter_condition(ticker, i)
+            ENTER_CONDITION = fn_enter_condition(ticker, i, high_tf_idx)
             
             if ENTER_CONDITION:
                 tickers_signal[ticker] = trade_type
@@ -327,11 +334,12 @@ for ticker in tickers:
                 
         elif tickers_signal[ticker] == "Buy":
             
-            EXIT_CONDITION = fn_exit_condition(ticker, i)
+            EXIT_CONDITION = fn_exit_condition(ticker, i, high_tf_idx)
             
             day_trade_EOD = False
             index_adjuster = 0
             if day_trade and cp_ohlc_dict[ticker].iloc[i].name.minute == 15 and cp_ohlc_dict[ticker].iloc[i].name.hour == 15:
+                print("got used index adjuster")
                 day_trade_EOD = True
                 index_adjuster = -1
                 
@@ -349,11 +357,12 @@ for ticker in tickers:
                 
         elif tickers_signal[ticker] == "Sell":
             
-            EXIT_CONDITION = fn_exit_condition(ticker, i)
+            EXIT_CONDITION = fn_exit_condition(ticker, i, high_tf_idx)
             
             day_trade_EOD = False
             index_adjuster = 0
             if day_trade and cp_ohlc_dict[ticker].iloc[i].name.minute == 15 and cp_ohlc_dict[ticker].iloc[i].name.hour == 15:
+                print("got used index adjuster")
                 day_trade_EOD = True
                 index_adjuster = -1
             
@@ -378,6 +387,9 @@ all_trade_conclusion = {}
 
 for ticker in tickers:
     # calculating sotck wise data
+    if len(tickers_trades[ticker]) == 0:
+        print("no trades took place for this ticker", ticker)
+        continue
     trades_df[ticker] = pd.DataFrame(tickers_trades[ticker]) 
     all_trades.append(trades_df[ticker])
     trades_df[ticker]["slippage_cost"] = trades_df[ticker]["enter"] * slippage_rate + trades_df[ticker]["exit"] * slippage_rate
@@ -405,6 +417,9 @@ for ticker in tickers:
 
 
 print("calculating all metrices")
+if len(all_trades) == 0:
+    sys.exit("no trades in entire trade")
+    
 all_trades_df = pd.concat(all_trades, ignore_index=True).sort_values(by="enter_index")
 # Slippage cost (enter + exit)
 all_trades_df["slippage_cost"] = all_trades_df["enter"] * slippage_rate + all_trades_df["exit"] * slippage_rate
@@ -444,10 +459,3 @@ print(f"Max Drawdown: {max_dd:,.2f}")
 print(f"CAGR: {cagr*100:.2f}%")
 print(f"Win Rate: {win_rate*100:.2f}%, total trades: {len(all_trades_df)}")
 print(f"Total Net Profit: {all_trades_df['net_profit'].sum():,.2f}")
-
-
-    
-
-
-
-    
