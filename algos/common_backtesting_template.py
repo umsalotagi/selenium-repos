@@ -31,6 +31,15 @@ def ATR(df,n):
     #df['ATR'] = df['TR'].ewm(span=n,adjust=False,min_periods=n).mean()
     df.drop(['H-L','H-PC','L-PC'],axis=1, inplace=True)
 
+def atrCalc(DF,n):
+    "function to calculate True Range and Average True Range"
+    df = DF.copy()
+    df['H-L']=abs(df['high']-df['low'])
+    df['H-PC']=abs(df['high']-df['close'].shift(1))
+    df['L-PC']=abs(df['low']-df['close'].shift(1))
+    df['TR']=df[['H-L','H-PC','L-PC']].max(axis=1,skipna=False)
+    df['ATR'] = df['TR'].ewm(com=n,min_periods=n).mean()
+    return df['ATR']
 
 def CAGR(DF):
     "function to calculate the Cumulative Annual Growth Rate of a trading strategy"
@@ -176,6 +185,21 @@ def MACD(df,a=12,b=26,c=9):
     df["Histogram"] = df["MACD"] - df["Signal"]
     #df.dropna(inplace=True)
     #return df
+    
+def MACD2(df,a=12,b=26,c=9):
+    """function to calculate MACD
+       typical values a(fast moving average) = 12; 
+                      b(slow moving average) =26; 
+                      c(signal line ma window) =9"""
+    #df = DF.copy()
+    df["MA_Fast2"]=df["HA_Close2"].ewm(span=a,min_periods=a).mean()
+    df["MA_Slow2"]=df["HA_Close2"].ewm(span=b,min_periods=b).mean()
+    df["MACD2"]=df["MA_Fast2"]-df["MA_Slow2"]
+    df["Signal2"]=df["MACD2"].ewm(span=c,min_periods=c).mean()
+    df["Signal_name2"] = df.apply(lambda row: "bullish" if row["MACD2"] > row["Signal2"] else "bearish", axis=1)
+    df["Histogram2"] = df["MACD2"] - df["Signal2"]
+    #df.dropna(inplace=True)
+    #return df
 
 def heikinashi(df):
     df['HA_Close'] = (df['open'] + df['high'] + df['low'] + df['close']) / 4
@@ -195,12 +219,90 @@ def heikinashi(df):
     
 
 
-def supertrendNEW(df, n=10, m=3):
+def detect_swings(df, lookback=2):
+    """
+    Detect swing highs and swing lows.
+    df must have 'high' and 'low' columns.
+    lookback defines how many candles before/after to compare.
+    """
     #df = df.copy()
-    #df['ATR'] = atrNEW(df, n)
+    df["swing_high"] = False
+    df["swing_low"] = False
+
+    for i in range(lookback, len(df) - lookback):
+        high = df["high"].iloc[i]
+        low = df["low"].iloc[i]
+
+        # check swing high
+        if high == max(df["high"].iloc[i-lookback:i+lookback+1]):
+            df.at[df.index[i], "swing_high"] = True
+
+        # check swing low
+        if low == min(df["low"].iloc[i-lookback:i+lookback+1]):
+            df.at[df.index[i], "swing_low"] = True
+
+    #return df
+    
+def get_recent_swing_low(df, i):
+    """
+    Returns the most recent swing low (value + index) 
+    at or before the given index `i`.
+
+    Parameters:
+    df : DataFrame with 'swing_low' column
+    i  : index (can be int position or df index label)
+
+    Returns:
+    (low_value, swing_index) or (None, None) if no swing low found
+    """
+    # If i is a label (e.g., timestamp), convert to position
+    if i not in df.index:
+        raise ValueError(f"Index {i} not found in DataFrame")
+
+    # Subset up to and including i
+    subset = df.loc[:i]
+
+    swing_lows = subset[subset["swing_low"] == True]
+    if swing_lows.empty:
+        return None, None
+
+    last_idx = swing_lows.index[-1]
+    return df.loc[last_idx, "low"], last_idx
+
+
+def get_recent_swing_high(df, i):
+    """
+    Returns the most recent swing high (value + index)
+    at or before the given index `i`.
+
+    Parameters:
+    df : DataFrame with 'swing_high' column
+    i  : index (can be int position or df index label)
+
+    Returns:
+    (high_value, swing_index) or (None, None) if no swing high found
+    """
+    # If i is not in df index, raise error
+    if i not in df.index:
+        raise ValueError(f"Index {i} not found in DataFrame")
+
+    # Subset up to and including i
+    subset = df.loc[:i]
+
+    swing_highs = subset[subset["swing_high"] == True]
+    if swing_highs.empty:
+        return None, None
+
+    last_idx = swing_highs.index[-1]
+    return df.loc[last_idx, "high"], last_idx
+
+
+def supertrendNEW(DF, n=10, m=3, name="Strend"):
+    df = DF.copy()
+    df['ATR1'] = atrCalc(df, n)
     hl2 = (df['high'] + df['low']) / 2
-    df['UpperBand'] = hl2 + m * df['ATR']
-    df['LowerBand'] = hl2 - m * df['ATR']
+    df['UpperBand'] = hl2 + m * df['ATR1']
+    df['LowerBand'] = hl2 - m * df['ATR1']
     df['Strend'] = np.nan
     trend = True  # True for bullish, False for bearish
 
@@ -219,39 +321,95 @@ def supertrendNEW(df, n=10, m=3):
                 df.loc[df.index[i], 'Strend'] = df['LowerBand'].iloc[i]
     
     #return df[['close', 'Strend', 'UpperBand', 'LowerBand']]
+    DF[name] = df['Strend']
     return
 
 ###############################################################################
+def macd_xover_is_near_crossover_bullish(macd,i):
+    if macd["MACD"].iloc[i]>macd["Signal"].iloc[i]:
+        # now currently its in bull, now check if it was bear in last n session
+        wasBear = any(macd["MACD"].iloc[i-j] < macd["Signal"].iloc[i-j] for j in [-1, -3, -4])
+        return wasBear
+    return False
+
 # check high tf histogram as more than certain amount, not jjust macd 
 # and then current tf hiekienashi, with ha calculation where close = 0.5 open + high + low + 1.5 close
 def fn_enter_condition(ticker, i, high_tf_idx):
 
-    one = cp_ohlc_dict[ticker]["close"].iloc[i] > cp_ohlc_dict[ticker]["Senkou_span_A"].iloc[i]
-    two = ohlc_dict_high_tf[ticker]["close"].iloc[high_tf_idx] > ohlc_dict_high_tf[ticker]["Senkou_span_A"].iloc[high_tf_idx]
-    return one and two
+    # to do - check with ATR stop loss and target - minmum 05 delta , better 0.75 > delta
+    # choose option chain based in video and not change option chain many time a day.
+    return ( True and
+        #min(cp_ohlc_dict[ticker]["Senkou_span_A"].iloc[i], cp_ohlc_dict[ticker]["Senkou_span_B"].iloc[i]) and
+        #cp_ohlc_dict[ticker]["close"].iloc[i] > min_cloud and
+        cp_ohlc_dict[ticker]["Signal_name"].iloc[i] == "bullish" and
+        #cp_ohlc_dict[ticker]["MACD"].iloc[i] > 0 and
+        cp_ohlc_dict[ticker]["HA_Close"].iloc[i] > cp_ohlc_dict[ticker]["HA_Open"].iloc[i] and
+        cp_ohlc_dict[ticker]["Strend"].iloc[i] < cp_ohlc_dict[ticker]["close"].iloc[i] and
+        
+        ohlc_dict_high_tf[ticker]["Signal_name"].iloc[high_tf_idx] == "bullish" and
+        ohlc_dict_high_tf[ticker]["MACD"].iloc[high_tf_idx] > 0 and
+        #ohlc_dict_high_tf[ticker]["Histogram"].iloc[high_tf_idx] > 0.5 and
+        ohlc_dict_high_tf[ticker]["Strend"].iloc[high_tf_idx] < cp_ohlc_dict[ticker]["close"].iloc[high_tf_idx] and 
+        #ohlc_dict_high_tf[ticker]["close"].iloc[high_tf_idx] > ohlc_dict_high_tf[ticker]["Senkou_span_A"].iloc[high_tf_idx] and
+    True )
 
+def fn_check_stop_loss(ticker, i):
+    entry_atr = tickers_signal[ticker]["atr"]
+    entry_price = tickers_entered[ticker]["open"]
+    entry_sl = entry_price - 1.5*entry_atr
+    new_sl = max(cp_ohlc_dict[ticker]["close"].iloc[i-1] - 1.5*entry_atr, entry_sl)
+    sl_triggered =  (True and
+            cp_ohlc_dict[ticker]["low"].iloc[i] < new_sl and
+            #False and 
+            True )
+    if sl_triggered:
+        return new_sl
+    else:
+        return None
 
 def fn_exit_condition(ticker, i, high_tf_idx):
     
-    one = cp_ohlc_dict[ticker]["close"].iloc[i] < cp_ohlc_dict[ticker]["Senkou_span_A"].iloc[i]
-    two = ohlc_dict_high_tf[ticker]["close"].iloc[high_tf_idx] < ohlc_dict_high_tf[ticker]["Senkou_span_A"].iloc[high_tf_idx]
-    return one or two
+    one = cp_ohlc_dict[ticker]["HA_Close"].iloc[i] < cp_ohlc_dict[ticker]["HA_Open"].iloc[i]
+    two = cp_ohlc_dict[ticker]["Signal_name"].iloc[i] == "bearish"
+    #one = cp_ohlc_dict[ticker]["close"].iloc[i] < cp_ohlc_dict[ticker]["Senkou_span_A"].iloc[i]
+    #two = ohlc_dict_high_tf[ticker]["close"].iloc[high_tf_idx] < ohlc_dict_high_tf[ticker]["Senkou_span_A"].iloc[high_tf_idx]
+    return one and two
 
 
 ###############################################################################
 nifty_100 = ['ABB','ADANIENSOL','ADANIENT','ADANIGREEN','ADANIPORTS','ADANIPOWER','ATGL','AMBUJACEM','APOLLOHOSP','ASIANPAINT','DMART','AXISBANK','BAJAJ-AUTO','BAJFINANCE','BAJAJFINSV','BAJAJHLDNG','BANKBARODA','BERGEPAINT','BEL','BPCL','BHARTIARTL','BOSCHLTD','BRITANNIA','CANBK','CHOLAFIN','CIPLA','COALINDIA','COLPAL','DLF','DABUR','DIVISLAB','DRREDDY','EICHERMOT','GAIL','GODREJCP','GRASIM','HCLTECH','HDFCBANK','HDFCLIFE','HAVELLS','HEROMOTOCO','HINDALCO','HAL','HINDUNILVR','ICICIBANK','ICICIGI','ICICIPRULI','ITC','IOC','IRCTC','IRFC','INDUSINDBK','NAUKRI','INFY','INDIGO','JSWSTEEL','JINDALSTEL','JIOFIN','KOTAKBANK','LTIM','LT','LICI','M&M','MARICO','MARUTI','NTPC','NESTLEIND','ONGC','PIDILITIND','PFC','POWERGRID','PNB','RECLTD','RELIANCE','SBICARD','SBILIFE','SRF','MOTHERSON','SHREECEM','SHRIRAMFIN','SIEMENS','SBIN','SUNPHARMA','TVSMOTOR','TCS','TATACONSUM','TATAMOTORS','TATAPOWER','TATASTEEL','TECHM','TITAN','TORNTPHARM','TRENT','ULTRACEMCO','UNITDSPR','VBL','VEDL','WIPRO','ZYDUSLIFE']
 
-tickers = ['ABB','ADANIENSOL','ADANIENT']
-tickers = ['NIFTY_50_PE']
+tickers = ['ICICIBANK_PE', 'ICICIBANK_CE', 'HDFCBANK_PE', 'HDFCBANK_CE', 'RELIANCE_PE', 
+           'RELIANCE_CE', 'INFY_PE', 'INFY_CE', 'TCS_PE', 'TCS_CE', 'SBIN_PE', 'SBIN_CE', 
+           'AXISBANK_PE', 'AXISBANK_CE']
 
-ticker_token_map = { "NIFTY_50_PE" : "17082626"}
+tickers = ['NIFTY']
+#tickers = ['RELIANCE_PE', 'RELIANCE_CE']
 
-strategy_tf = "15minute"
-tf_fetch_days = 180
-strtegy_high_tf = "day"
-high_tf_fetch_days = 250
+ticker_token_map = { "BANK_NIFTY_CE":"17112834", "BANK_NIFTY_PE":"17114626", "NIFTY_CE" : "12087298", 
+                    "NIFTY_CE": "12088834", "HDFCBANK_CE":"25385730",
+                    "HDFCBANK_PE":"23177474",  "RELIANCE_CE":"33890818", "RELIANCE_PE":"33032706",'ICICIBANK_PE': "26225922",
+                     'ICICIBANK_CE': "24264194",'HDFCBANK_PE': "23177474",'HDFCBANK_CE': "25385730",
+                     'RELIANCE_PE': "33032706",'RELIANCE_CE': "33890818",'INFY_PE': "27255298",'INFY_CE': "25507586",'TCS_PE': "36132098",
+                     'TCS_CE': "35420162",'SBIN_PE': "33873154",
+                     'SBIN_CE': "34367490",'AXISBANK_PE': "17801986",'AXISBANK_CE': "20313602"}
+"""
+okk = {}
+for t in tickers:
+    for k in ["PE", "CE"]:
+        ticker_ltp = kite.ltp("NSE:" + t)["NSE:" + t]["last_price"]
+        print("trying for ", t)
+        op = chooseOptionChain(t, k, ticker_ltp, 'ATM')
+        okk[t + "_" + k] = op["instrument_token"]
+print(okk)"""
 
-day_trade = False
+
+strategy_tf = "5minute"
+tf_fetch_days = 20
+strtegy_high_tf = "15minute"
+high_tf_fetch_days = 25
+
+day_trade = True
 trading_days = 252  # yearly
 capital = 1_00_00_000  # 1 crore
 slippage_rate = 0.0005  # example: 0.05%
@@ -283,21 +441,24 @@ for ticker in tickers:
     ohlc_dict[ticker]["ema_13"]=ohlc_dict[ticker]["close"].ewm(span=13,min_periods=13).mean()
     ohlc_dict[ticker]["ema_21"]=ohlc_dict[ticker]["close"].ewm(span=21,min_periods=21).mean()
     # ATR 14 was used in chatgpt
-    ATR(ohlc_dict[ticker],20)
+    ATR(ohlc_dict[ticker],14)
     # Pick stocks with rising RS → outperforming index.
-    RS(ohlc_dict[ticker], index_DF,14,70)
+    #RS(ohlc_dict[ticker], index_DF,14,70)
     # ATR(14) / Close > 1.5%
-    ohlc_dict[ticker]["ATR_to_price"] = ohlc_dict[ticker]["ATR"] / ohlc_dict[ticker]["close"]
+    #ohlc_dict[ticker]["ATR_to_price"] = ohlc_dict[ticker]["ATR"] / ohlc_dict[ticker]["close"]
     # Volume > 20-SMA of Volume
     ohlc_dict[ticker]["volume_sma"]=ohlc_dict[ticker]["volume"].rolling(window=20).mean()
-    ichimoko(ohlc_dict[ticker])
-    MACD(ohlc_dict[ticker],5,13,4)
-    heikinashi(ohlc_dict[ticker]) # 5, 13, 26
-    supertrendNEW(ohlc_dict[ticker])
+    ichimoko(ohlc_dict[ticker],5,13,26) # 5, 13, 26
+    MACD(ohlc_dict[ticker],8,21,5) ##5,13,4
+    heikinashi(ohlc_dict[ticker])
+    supertrendNEW(ohlc_dict[ticker], 10, 3)
     ohlc_dict[ticker].dropna(inplace=True)
     
     ichimoko(ohlc_dict_high_timeframe[ticker])
     MACD(ohlc_dict_high_timeframe[ticker],5,13,4)
+    #ATR(ohlc_dict_high_timeframe[ticker],7)
+    supertrendNEW(ohlc_dict_high_timeframe[ticker], 7, 2)
+
     
     
    
@@ -311,7 +472,7 @@ tickers_trades = {}
 tickers_entered = {}
 
 for ticker in tickers:
-    tickers_signal[ticker] = ""
+    tickers_signal[ticker] = {"sig": ""}
     tickers_entered[ticker] = None
     tickers_trades[ticker] = []
     
@@ -324,38 +485,53 @@ for ticker in tickers:
         # Find the last closed high TF candle before or at this timestamp
         high_tf_idx = ohlc_dict_high_tf[ticker].index.get_indexer([ts], method="pad")[0] - 1
         
-        if tickers_signal[ticker] == "":
+        if tickers_signal[ticker]["sig"] == "":
             
             ENTER_CONDITION = fn_enter_condition(ticker, i, high_tf_idx)
             
+            if day_trade and cp_ohlc_dict[ticker].iloc[i].name.minute >= 15 and cp_ohlc_dict[ticker].iloc[i].name.hour >= 15:
+                continue;
+            """if cp_ohlc_dict[ticker].iloc[i].name.day < 13:
+                continue;"""
+            
             if ENTER_CONDITION:
+                #print("data ...", cp_ohlc_dict[ticker].iloc[i].name , ohlc_dict_high_tf[ticker].iloc[high_tf_idx].name)
                 tickers_signal[ticker] = trade_type
+                tickers_signal[ticker]["atr"] =  cp_ohlc_dict[ticker]["ATR"].iloc[i]
                 tickers_entered[ticker] = ohlc_dict[ticker].iloc[i+1]
                 
-        elif tickers_signal[ticker] == "Buy":
+        elif tickers_signal[ticker]["sig"] == "Buy":
+            #print("buy detected", ticker, cp_ohlc_dict[ticker].iloc[i].name)
+            
+            # check stop loss
+            sl_triggered = fn_check_stop_loss(ticker, i)
             
             EXIT_CONDITION = fn_exit_condition(ticker, i, high_tf_idx)
             
             day_trade_EOD = False
             index_adjuster = 0
-            if day_trade and cp_ohlc_dict[ticker].iloc[i].name.minute == 15 and cp_ohlc_dict[ticker].iloc[i].name.hour == 15:
-                print("got used index adjuster")
+            if day_trade and cp_ohlc_dict[ticker].iloc[i].name.minute >= 15 and cp_ohlc_dict[ticker].iloc[i].name.hour >= 15:
+                #print("got used index adjuster", cp_ohlc_dict[ticker].iloc[i].name)
                 day_trade_EOD = True
                 index_adjuster = -1
                 
-            if EXIT_CONDITION or day_trade_EOD:
-                tickers_signal[ticker] = ""
+            if EXIT_CONDITION or day_trade_EOD or (sl_triggered != None):
+                exit_price = ohlc_dict[ticker].iloc[i+1+index_adjuster]["open"]
+                if (sl_triggered != None):
+                    exit_price = sl_triggered
+                tickers_signal[ticker] = {}
                 trade_obj = {
                     "enter_index": tickers_entered[ticker].name,
                     "enter": tickers_entered[ticker]["open"],
-                    "exit": ohlc_dict[ticker].iloc[i+1+index_adjuster]["open"],
+                    "exit": exit_price,
                     "exit_index": ohlc_dict[ticker].iloc[i+1+index_adjuster].name,
-                    "profit": ohlc_dict[ticker].iloc[i+1+index_adjuster]["open"] - tickers_entered[ticker]["open"]
+                    "profit": exit_price - tickers_entered[ticker]["open"],
+                    "sl_triggered": (sl_triggered != None)
                 }
                 tickers_trades[ticker].append(trade_obj)
                 tickers_entered[ticker] = None
                 
-        elif tickers_signal[ticker] == "Sell":
+        elif tickers_signal[ticker]["sig"] == "Sell":
             
             EXIT_CONDITION = fn_exit_condition(ticker, i, high_tf_idx)
             
@@ -367,7 +543,7 @@ for ticker in tickers:
                 index_adjuster = -1
             
             if EXIT_CONDITION:
-                tickers_signal[ticker] = ""
+                tickers_signal[ticker] = {}
                 trade_obj = {
                     "enter_index": tickers_entered[ticker].name,
                     "enter": tickers_entered[ticker]["open"],
